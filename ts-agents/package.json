@@ -1,0 +1,36 @@
+{
+  "name": "@learn-claude-code/ts-agents",
+  "version": "0.1.0",
+  "description": "TypeScript implementation of learn-claude-code agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/s01_ts_example.ts",
+    "build": "tsc",
+    "test": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test:s01": "tsx examples/s01_ts_example.ts"
+  },
+  "keywords": [
+    "claude",
+    "anthropic",
+    "agent",
+    "typescript",
+    "ai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.2",
+    "prettier": "^3.4.2",
+    "vitest": "^2.1.8"
+  }
+}
