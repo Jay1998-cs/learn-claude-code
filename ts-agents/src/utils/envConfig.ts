@@ -8,12 +8,17 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
+type EnvConfig = {
+  API_KEY: string;
+  MODEL_ID: string;
+  BASE_URL: string;
+};
 
 // 获取环境变量配置
-export function getEnvConfig(): object {
+export function getEnvConfig(): EnvConfig {
   return {
     API_KEY: process.env.ANTHROPIC_API_KEY || '',
-    MODEL: process.env.MODEL_ID || DEFAULT_MODEL_ID,
+    MODEL_ID: process.env.MODEL_ID || DEFAULT_MODEL_ID,
     BASE_URL: process.env.ANTHROPIC_BASE_URL || '',
   };
 }
