@@ -116,10 +116,11 @@ async function agentLoop(messages: object[]) {
 
 // 应用入口
 async function main() {
+  // 保存用户发送历史消息
+  const history: object[] = [];
+  // 循环程序
   while (true) {
     try {
-      // 初始化消息列表
-      const messages = [];
       // 读取用户输入
       const rl = readline.createInterface({
         input: process.stdin,
@@ -131,12 +132,12 @@ async function main() {
       if (['q', 'exit', ''].includes(query?.trim().toLowerCase())) {
         break;
       }
-      // 添加用户角色响应内容
-      messages.push({ role: ROLE.USER, content: query });
+      // 保存用户发送历史消息
+      history.push({ role: ROLE.USER, content: query });
       // 执行主循环
-      const response = await agentLoop(messages);
+      await agentLoop(history);
       // 打印最终的响应内容
-      const responseContent = response[response.length - 1].content;
+      const responseContent = history[history.length - 1].content; // [{type: 'text', text: 'xxx'}, ...]
       logger(`[main] final responseContent: ${JSON.stringify(responseContent)}`);
       if (Array.isArray(responseContent)) {
         for (const block of responseContent) {
