@@ -5,6 +5,7 @@ import { TOOL_BASIC } from "./configs/toolType.js";
 import { getEnvConfig } from "./utils/envConfig.js";
 import { TOOL_RESPONSE_TYPE, TOOL_RESULT_TYPE } from "./configs/toolConstant.js";
 import { runBash } from "./tools/bash/run_bash.js";
+import { runRead, runWrite, runEdit } from "./tools/file/index.js";
 import logger from "./utils/logger.js";
 
 // s01_agent_loop.py - The Agent Loop
@@ -52,7 +53,52 @@ const TOOLS: TOOL_BASIC[] = [
       required: ['command'],
     },
   },
+  {
+    name: 'read_file',
+    description: 'Read file contents.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        limit: { type: 'integer' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'write_file',
+    description: 'Write content to file.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        content: { type: 'string' },
+      },
+      required: ['path', 'content'],
+    },
+  },
+  {
+    name: 'edit_file',
+    description: 'Replace exact text in file.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+        old_text: { type: 'string' },
+        new_text: { type: 'string' },
+      },
+      required: ['path', 'old_text', 'new_text'],
+    },
+  },
 ];
+
+// 工具调度映射
+const TOOL_HANDLERS: Record<string, (input: Record<string, any>) => string> = {
+  bash: (input) => runBash(input.command),
+  read_file: (input) => runRead(input.path, input.limit),
+  write_file: (input) => runWrite(input.path, input.content),
+  edit_file: (input) => runEdit(input.path, input.old_text, input.new_text),
+};
 
 // 客户端
 const client = new Anthropic({
@@ -90,9 +136,12 @@ async function agentLoop(messages: object[]) {
       for(const block of blocks) {
         // 工具调用
         if(block?.type === TOOL_RESPONSE_TYPE.TOOL_USE) {
-          // 执行工具，获取输出结果
-          logger(`>>> [agentLoop]tool command: ${block.input['command']}`);
-          const output = await runBash(block.input['command']);
+          // 通过调度映射执行工具
+          const handler = TOOL_HANDLERS[block.name];
+          const output = handler
+            ? await handler(block.input as Record<string, any>)
+            : `Unknown tool: ${block.name}`;
+          logger(`>>> [agentLoop]tool: ${block.name}`);
           logger(`<<< [agentLoop]tool output: ${output.slice(0, 200)}`, '33');
           // 添加工具调用结果消息
           results.push({
