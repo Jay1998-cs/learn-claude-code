@@ -20,3 +20,14 @@ export const TOOL_RESULT_TYPE:Record<string, string> = {
   TOOL_RESULT: 'tool_result',
   TEXT: 'text',
 }
+
+/**
+ * @description 工具名称
+ */
+export const TOOL_NAME:Record<string, string> = {
+  BASH: 'bash',
+  READ_FILE: 'read_file',
+  WRITE_FILE: 'write_file',
+  EDIT_FILE: 'edit_file',
+  TODO: 'todo',
+}

@@ -3,31 +3,36 @@ import * as readline from 'readline/promises';
 import { ROLE, SYSYEM_PROMPT } from "./configs/systemConstant.js";
 import { TOOL_BASIC } from "./configs/toolType.js";
 import { getEnvConfig } from "./utils/envConfig.js";
-import { TOOL_RESPONSE_TYPE, TOOL_RESULT_TYPE } from "./configs/toolConstant.js";
+import { TOOL_NAME, TOOL_RESPONSE_TYPE, TOOL_RESULT_TYPE } from "./configs/toolConstant.js";
 import { runBash } from "./tools/bash/run_bash.js";
 import { runRead, runWrite, runEdit } from "./tools/file/index.js";
 import logger from "./utils/logger.js";
+import TodoManager, { TODO_STATUS, TodoItems } from "./tools/todo/TodoManager.js";
 
-// s01_agent_loop.py - The Agent Loop
-// The entire secret of an AI coding agent in one pattern:
+// s03_todo_write.py - TodoWrite
 
-//     while stop_reason == "tool_use":
-//         response = LLM(messages, tools)
-//         execute tools
-//         append results
+// The model tracks its own progress via a TodoManager. A nag reminder
+// forces it to keep updating when it forgets.
 
 //     +----------+      +-------+      +---------+
-//     |   User   | ---> |  LLM  | ---> |  Tool   |
-//     |  prompt  |      |       |      | execute |
+//     |   User   | ---> |  LLM  | ---> | Tools   |
+//     |  prompt  |      |       |      | + todo  |
 //     +----------+      +---+---+      +----+----+
 //                           ^               |
 //                           |   tool_result |
 //                           +---------------+
-//                           (loop continues)
+//                                 |
+//                     +-----------+-----------+
+//                     | TodoManager state     |
+//                     | [ ] task A            |
+//                     | [>] task B <- doing   |
+//                     | [x] task C            |
+//                     +-----------------------+
+//                                 |
+//                     if rounds_since_todo >= 3:
+//                       inject <reminder>
 
-// This is the core loop: feed tool results back to the model
-// until the model decides to stop. Production agents layer
-// policy, hooks, and lifecycle controls on top.
+// Key insight: "The agent can track its own progress -- and I can see it."
 
 // 声明
 const ENV_CONFIG = getEnvConfig();
@@ -39,6 +44,9 @@ const TOKEN = {
   TURN: 16000,
   STREAM: 64000,
 }
+
+const MAX_ROUNDS_SINCE_TODO = 3; // 连续未使用todo工具的最大轮数阈值
+const todoManager = new TodoManager([]); // 初始化任务管理器，默认空任务列表
 
 // 工具列表
 const TOOLS: TOOL_BASIC[] = [
@@ -90,6 +98,28 @@ const TOOLS: TOOL_BASIC[] = [
       required: ['path', 'old_text', 'new_text'],
     },
   },
+  {
+    name: TOOL_NAME.TODO,
+    description: 'Update task list. Track progress on multi-step tasks.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              text: { type: 'string' },
+              status: { type: 'string', enum: Object.values(TODO_STATUS) },
+            },
+            required: ['id', 'text', 'status'],
+          },
+        },
+      },
+      required: ['items'],
+    },
+  },
 ];
 
 // 工具调度映射
@@ -98,6 +128,7 @@ const TOOL_HANDLERS: Record<string, (input: Record<string, any>) => string> = {
   read_file: (input) => runRead(input.path, input.limit),
   write_file: (input) => runWrite(input.path, input.content),
   edit_file: (input) => runEdit(input.path, input.old_text, input.new_text),
+  todo: (input) => todoManager.update(input.items),
 };
 
 // 客户端
@@ -109,6 +140,7 @@ const client = new Anthropic({
 // 主循环
 async function agentLoop(messages: object[]) {
   try {
+    let rounds_since_todo = 0; // 连续未使用todo工具的轮数
     while (true) {
       // 通过client.messages.create发送消息请求，返回 response 包含：
       // - response.content — 内容块数组（TextBlock、ThinkingBlock、ToolUseBlock 等）
@@ -131,17 +163,19 @@ async function agentLoop(messages: object[]) {
         return messages;
       }
       // 遍历消息内容块，收集工具调用结果
-      const blocks = response?.content || [];
-      const results = [];
+      const blocks = response?.content || []; // AI响应内容块数组
+      const results = []; // 工具调用结果数组
+      let used_todo = false; // 是否使用todo工具
       for(const block of blocks) {
         // 工具调用
         if(block?.type === TOOL_RESPONSE_TYPE.TOOL_USE) {
           // 通过调度映射执行工具
-          const handler = TOOL_HANDLERS[block.name];
+          const blockName = block.name;
+          const handler = TOOL_HANDLERS[blockName];
           const output = handler
             ? await handler(block.input as Record<string, any>)
-            : `Unknown tool: ${block.name}`;
-          logger(`>>> [agentLoop]tool: ${block.name}`);
+            : `Unknown tool: ${blockName}`;
+          logger(`>>> [agentLoop]tool name: ${blockName}`);
           logger(`<<< [agentLoop]tool output: ${output.slice(0, 200)}`, '33');
           // 添加工具调用结果消息
           results.push({
@@ -149,7 +183,19 @@ async function agentLoop(messages: object[]) {
             tool_use_id: block.id,
             content: output,
           });
+          // 当前使用todo工具标识
+          if(blockName === TOOL_NAME.TODO) {
+            used_todo = true;
+          }
         }
+      }
+      // todo tool：及时注入reminder，避免遗忘任务
+      rounds_since_todo = used_todo ? 0 : rounds_since_todo + 1;
+      if(rounds_since_todo >= MAX_ROUNDS_SINCE_TODO) {
+        results.push({
+          type: TOOL_RESULT_TYPE.TEXT,
+          text: '<reminder>Update your todos.</reminder>', // 额外注入reminder标签，提醒模型更新todos
+        });
       }
       // 添加用户角色响应内容
       messages.push({
