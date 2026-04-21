@@ -9,26 +9,38 @@ import { runRead, runWrite, runEdit } from "./tools/file/index.js";
 import logger from "./utils/logger.js";
 import TodoManager, { TODO_STATUS, TodoItems } from "./tools/todo/TodoManager.js";
 
-// s04_subagent.py - Subagents
+// s05_skill_loading.py - Skills
 
-// Spawn a child agent with fresh messages=[]. The child works in its own
-// context, sharing the filesystem, then returns only a summary to the parent.
+// Two-layer skill injection that avoids bloating the system prompt:
 
-//     Parent agent                     Subagent
-//     +------------------+             +------------------+
-//     | messages=[...]   |             | messages=[]      |  <-- fresh
-//     |                  |  dispatch   |                  |
-//     | tool: task       | ---------->| while tool_use:  |
-//     |   prompt="..."   |            |   call tools     |
-//     |   description="" |            |   append results |
-//     |                  |  summary   |                  |
-//     |   result = "..." | <--------- | return last text |
-//     +------------------+             +------------------+
-//               |
-//     Parent context stays clean.
-//     Subagent context is discarded.
+//     Layer 1 (cheap): skill names in system prompt (~100 tokens/skill)
+//     Layer 2 (on demand): full skill body in tool_result
 
-// Key insight: "Process isolation gives context isolation for free."
+//     skills/
+//       pdf/
+//         SKILL.md          <-- frontmatter (name, description) + body
+//       code-review/
+//         SKILL.md
+
+//     System prompt:
+//     +--------------------------------------+
+//     | You are a coding agent.              |
+//     | Skills available:                    |
+//     |   - pdf: Process PDF files...        |  <-- Layer 1: metadata only
+//     |   - code-review: Review code...      |
+//     +--------------------------------------+
+
+//     When model calls load_skill("pdf"):
+//     +--------------------------------------+
+//     | tool_result:                         |
+//     | <skill>                              |
+//     |   Full PDF processing instructions   |  <-- Layer 2: full body
+//     |   Step 1: ...                        |
+//     |   Step 2: ...                        |
+//     | </skill>                             |
+//     +--------------------------------------+
+
+Key insight: "Don't put everything in the system prompt. Load on demand."
 
 // 声明
 const ENV_CONFIG = getEnvConfig();
