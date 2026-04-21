@@ -31,4 +31,5 @@ export const TOOL_NAME:Record<string, string> = {
   EDIT_FILE: 'edit_file',
   TODO: 'todo',
   TASK: 'task',
+  LOAD_SKILL: 'load_skill',
 }

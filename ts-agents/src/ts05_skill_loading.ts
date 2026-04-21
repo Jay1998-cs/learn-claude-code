@@ -8,6 +8,8 @@ import { runBash } from "./tools/bash/run_bash.js";
 import { runRead, runWrite, runEdit } from "./tools/file/index.js";
 import logger from "./utils/logger.js";
 import TodoManager, { TODO_STATUS, TodoItems } from "./tools/todo/TodoManager.js";
+import path from "path";
+import SkillLoader from "./skill/skillLoader.js";
 
 // s05_skill_loading.py - Skills
 
@@ -40,13 +42,11 @@ import TodoManager, { TODO_STATUS, TodoItems } from "./tools/todo/TodoManager.js
 //     | </skill>                             |
 //     +--------------------------------------+
 
-Key insight: "Don't put everything in the system prompt. Load on demand."
+// Key insight: "Don't put everything in the system prompt. Load on demand."
 
 // 声明
 const ENV_CONFIG = getEnvConfig();
 const { API_KEY, MODEL_ID, BASE_URL } = ENV_CONFIG;
-
-const SYSTEM_PROMPT = SYSYEM_PROMPT;
 
 const TOKEN = {
   TURN: 16000,
@@ -55,6 +55,16 @@ const TOKEN = {
 
 const MAX_ROUNDS_SINCE_TODO = 3; // 连续未使用todo工具的最大轮数阈值
 const todoManager = new TodoManager([]); // 初始化任务管理器，默认空任务列表
+
+const WORKDIR = path.resolve(process.cwd()); // 当前工作目录
+const SKILLS_DIR = path.join(WORKDIR, 'skills'); // skills目录
+
+const SKILL_LOADER = new SkillLoader(SKILLS_DIR); // skills加载器
+const SKILL_DESCRIPTIONS = SKILL_LOADER.getDescriptions(); // skill <name, description> 列表
+const SKILL_PROMPT = `Skills available:\n${SKILL_DESCRIPTIONS}`; // skills prompt
+
+const SYSTEM_PROMPT = `${SYSYEM_PROMPT}\n\n${SKILL_PROMPT}`; // system prompt
+logger(`<<<<< system prompt: ${SYSTEM_PROMPT}`, '34');
 
 // 工具列表
 const TOOLS: TOOL_BASIC[] = [
@@ -128,6 +138,21 @@ const TOOLS: TOOL_BASIC[] = [
       required: ['items'],
     },
   },
+  {
+    name: TOOL_NAME.LOAD_SKILL,
+    description: 'Load specialized knowledge by name.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Skill name to load',
+        },
+      },
+      required: ['name'],
+    },
+
+  },
 ];
 
 // subagent工具定义
@@ -165,6 +190,7 @@ const TOOL_HANDLERS: Record<string, (input: Record<string, any>) => string> = {
   write_file: (input) => runWrite(input.path, input.content),
   edit_file: (input) => runEdit(input.path, input.old_text, input.new_text),
   todo: (input) => todoManager.update(input.items),
+  load_skill: (input) => SKILL_LOADER.getContent(input.name),
 };
 
 // 客户端
@@ -180,7 +206,7 @@ async function runSubagent(prompt: string) {
   const MAX_CONTENT_LENGTH = 50000; // 内容长度上限
   let response;
   // 循环执行，最多MAX_ROUNDS轮
-  for(let i = 0; i < MAX_ROUNDS; i++) {
+  for (let i = 0; i < MAX_ROUNDS; i++) {
     // 发送消息请求，获取LLM response 
     response = await client.messages.create({
       model: MODEL_ID,
@@ -195,14 +221,14 @@ async function runSubagent(prompt: string) {
       content: response?.content || '',
     });
     // 非工具调用，结束
-    if(response?.stop_reason !== TOOL_RESPONSE_TYPE.TOOL_USE) {
+    if (response?.stop_reason !== TOOL_RESPONSE_TYPE.TOOL_USE) {
       break;
     }
     // 工具调用，遍历response内容块，收集工具调用结果
     const blocks = response?.content || [];
     const results = [];
-    for(const block of blocks) {
-      if(block?.type === TOOL_RESPONSE_TYPE.TOOL_USE) {
+    for (const block of blocks) {
+      if (block?.type === TOOL_RESPONSE_TYPE.TOOL_USE) {
         const blockName = block.name;
         const handler = TOOL_HANDLERS[blockName];
         const output = handler ?
@@ -222,7 +248,7 @@ async function runSubagent(prompt: string) {
     });
   }
   // 返回最终response的结果内容
-  return response?.content ? 
+  return response?.content ?
     response?.content.map(block => block?.text).filter(Boolean).join('\n') :
     '(no summary)';
 }
@@ -322,7 +348,7 @@ async function main() {
         input: process.stdin,
         output: process.stdout,
       });
-      const query = await rl.question('\x1b[36m[s01] input: \x1b[0m');
+      const query = await rl.question('\x1b[36m[main] input: \x1b[0m');
       rl.close();
       // 退出循环
       if (['q', 'exit', ''].includes(query?.trim().toLowerCase())) {
