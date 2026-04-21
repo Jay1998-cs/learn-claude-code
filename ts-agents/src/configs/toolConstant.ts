@@ -30,4 +30,5 @@ export const TOOL_NAME:Record<string, string> = {
   WRITE_FILE: 'write_file',
   EDIT_FILE: 'edit_file',
   TODO: 'todo',
+  TASK: 'task',
 }
